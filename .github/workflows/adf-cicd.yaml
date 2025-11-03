@@ -53,13 +53,17 @@ jobs:
           version: '2.46.0'
 
       # --- Step 6: Configure JFrog connection ---
-      - name: Configure JFrog
+      - name: Configure JFrog (Reference Token)
         env:
           JFROG_URL: ${{ secrets.JFROG_URL }}
           JFROG_USER: ${{ secrets.JFROG_USER }}
-          JFROG_API_KEY: ${{ secrets.JFROG_API_KEY }}
+          JFROG_ACCESS_TOKEN: ${{ secrets.JFROG_ACCESS_TOKEN }}
         run: |
-          jfrog config add artifactory-server --url=$JFROG_URL --user=$JFROG_USER --apikey=$JFROG_API_KEY --interactive=false
+          jfrog config add artifactory-server \
+            --url=$JFROG_URL \
+            --user=$JFROG_USER \
+            --access-token=$JFROG_ACCESS_TOKEN \
+            --interactive=false
 
       # --- Step 7: Upload artifact to JFrog Artifactory ---
       - name: Upload ARM zip to JFrog
