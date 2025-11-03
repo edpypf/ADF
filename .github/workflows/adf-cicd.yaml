@@ -1,0 +1,96 @@
+name: Azure Data Factory CI/CD with JFrog
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  ADF_PUBLISH_BRANCH: adf_publish
+  ARTIFACT_NAME: adf-arm-artifact.zip
+  ARTIFACTORY_REPO: my-adf-repo/adf-artifacts
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      # --- Step 1: Checkout main branch ---
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # --- Step 2: Pull adf_publish branch (ARM templates) ---
+      - name: Fetch adf_publish branch
+        run: |
+          git fetch origin $ADF_PUBLISH_BRANCH:$ADF_PUBLISH_BRANCH
+          git checkout $ADF_PUBLISH_BRANCH
+
+      - name: Verify ARM template files
+        run: |
+          ls -l *.json
+
+      # --- Step 3: JSON schema validation ---
+      - name: Validate ARM templates
+        run: |
+          npm install -g jsonlint
+          jsonlint -q ARMTemplateForFactory.json
+          jsonlint -q ARMTemplateParametersForFactory.json
+
+      # --- Step 4: Zip the ARM templates ---
+      - name: Zip ARM files
+        run: zip -r $ARTIFACT_NAME ARMTemplate*.json
+
+      # --- Step 5: Setup JFrog CLI ---
+      - name: Setup JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v2
+        with:
+          version: '2.46.0'
+
+      # --- Step 6: Configure JFrog connection ---
+      - name: Configure JFrog (Reference Token)
+        env:
+          JFROG_URL: ${{ secrets.JFROG_URL }}
+          JFROG_USER: ${{ secrets.JFROG_USER }}
+          JFROG_ACCESS_TOKEN: ${{ secrets.JFROG_ACCESS_TOKEN }}
+        run: |
+          jfrog config add artifactory-server \
+            --url=$JFROG_URL \
+            --user=$JFROG_USER \
+            --access-token=$JFROG_ACCESS_TOKEN \
+            --interactive=false
+
+      # --- Step 7: Upload artifact to JFrog Artifactory ---
+      - name: Upload ARM zip to JFrog
+        run: |
+          jfrog rt upload "$ARTIFACT_NAME" "$ARTIFACTORY_REPO/${{ github.run_number }}/$ARTIFACT_NAME" --flat=true
+          jfrog rt build-publish "$ARTIFACTORY_REPO"
+
+      # --- Step 8: Login to Azure using OIDC (no secret needed) ---
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # --- Step 9: Deploy ADF ARM template to target RG ---
+      - name: Deploy ARM Template to Azure
+        uses: azure/arm-deploy@v1
+        with:
+          scope: resourceGroup
+          resourceGroupName: 'rg-adf-prod'
+          template: './ARMTemplateForFactory.json'
+          parameters: './ARMTemplateParametersForFactory.json'
+          deploymentName: 'ADFDeploy-${{ github.run_number }}'
+
+      # --- Step 10: Post-deploy verification (optional) ---
+      - name: Check ADF deployment status
+        run: |
+          echo "Deployment complete. Checking status..."
+          az deployment group show --resource-group rg-adf-prod --name ADFDeploy-${{ github.run_number }}
