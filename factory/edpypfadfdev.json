@@ -1,0 +1,9 @@
+{
+	"name": "edpypfadfdev",
+	"location": "eastus",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "056a4fca-324d-4e8c-b7cc-048284017cf8",
+		"tenantId": "0dd9e4ba-f74b-4523-9154-cc905e6dc85e"
+	}
+}
